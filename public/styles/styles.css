@@ -5,7 +5,7 @@ body {
     align-items: center;
     height: 100vh;
     margin: 0;
-    background-image: url('images/tickets.png');  /* Add this line */
+    background-image: url('images/Terminal.jpg');  /* Add this line */
     background-size: cover;  /* Ensures the image covers the entire screen */
     background-position: center;  /* Centers the image */
     background-repeat: repeat;  /* Prevents repeating the image */
