@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ready Check System</title>
+    <link rel="stylesheet" href="styles/styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Ready Check System</h1>
+        
+        <!-- Join Lobby Form -->
+        <form id="join-form">
+            <label for="player-name">Enter Your Name:</label>
+            <input type="text" id="player-name" placeholder="Your Name" required>
+            <label for="lobby-id">Enter Lobby ID:</label>
+            <input type="text" id="lobby-id" placeholder="Lobby Name" required>
+            <button type="submit" id="join-lobby-btn">Join Lobby</button>
+        </form>
+
+        <div>
+            <!-- Ready Button -->
+            <button id="toggle-ready-btn" disabled>Ready</button>
+        </div>
+
+        <div>
+            <h2>Players in Lobby:</h2>
+            <div id="players"></div>
+        </div>
+
+        <!-- Notification Overlay (Darkens the screen with message) -->
+        <div id="overlay" class="hidden">
+            <div id="notification">
+                Everyone is Ready!
+            </div>
+        </div>
+
+        <!-- Audio for Ready Sound -->
+        <audio id="ready-sound" src="sounds/ready-sound.mp3"></audio>
+    </div>
+
+    <script>
+        const socket = io();
+        let playerName = '';
+        let lobbyId = '';
+        let isReady = false;
+        let isProcessing = false;
+        let isDisconnecting = false; // Flag to track if the player is disconnecting
+    
+        const joinForm = document.getElementById('join-form');
+        const joinButton = document.getElementById('join-lobby-btn');
+        const readyButton = document.getElementById('toggle-ready-btn');
+        const playersList = document.getElementById('players');
+        const notification = document.getElementById('notification');
+        const overlay = document.getElementById('overlay');
+        const readySound = document.getElementById('ready-sound');
+        const playerNameInput = document.getElementById('player-name');
+        const lobbyIdInput = document.getElementById('lobby-id');
+    
+        // Ensure the Ready button starts disabled
+        readyButton.disabled = true;
+    
+        // Handle the form submission to join a lobby
+        joinForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            console.log("Form submitted.");
+    
+            if (joinButton.textContent === 'Join Lobby') {
+                // Joining a lobby
+                playerName = playerNameInput.value.trim();
+                lobbyId = lobbyIdInput.value.trim();
+    
+                if (!playerName || !lobbyId) {
+                    alert('Please enter both a player name and lobby ID.');
+                    return;
+                }
+    
+                socket.emit('joinLobby', { playerName, lobbyId });
+    
+                // Update button to become "Disconnect"
+                joinButton.textContent = 'Disconnect';
+                joinButton.style.backgroundColor = 'red';
+    
+                // Enable the Ready button
+                readyButton.disabled = false;
+                readyButton.style.backgroundColor = 'green';
+                readyButton.style.pointerEvents = 'auto';
+    
+                // Disable the input fields
+                playerNameInput.disabled = true;
+                lobbyIdInput.disabled = true;
+            } else {
+                // Disconnecting from the lobby
+                console.log("Disconnecting from lobby.");
+                isDisconnecting = true; // Set the flag to true
+                socket.emit('leaveLobby', { playerName, lobbyId });
+    
+                // Wait for confirmation from server before resetting UI
+                socket.once('disconnectConfirmed', () => {
+                    resetUI();
+                });
+            }
+        });
+    
+        // Handle the "Toggle Ready" button click
+        readyButton.addEventListener('click', () => {
+            console.log("Ready button clicked.");
+            if (isProcessing || !playerName || !lobbyId) return;
+    
+            isProcessing = true;
+            isReady = !isReady;
+            socket.emit('toggleReady', { lobbyId, playerName, isReady });
+            readyButton.textContent = isReady ? 'Unready' : 'Ready';
+            readyButton.style.backgroundColor = isReady ? 'red' : 'green';
+    
+            readyButton.disabled = true;
+            setTimeout(() => {
+                readyButton.disabled = false;
+                isProcessing = false;
+            }, 1000);
+        });
+    
+        // Listen for players update (Update UI and state)
+        socket.on('playersUpdate', (players) => {
+            if (isDisconnecting) {
+                return; // Skip updating the player list during disconnection
+            }
+    
+            console.log('Received players update:', players);
+            playersList.innerHTML = ''; // Clear the list every time we update the players.
+    
+            players.forEach(player => {
+                const playerItem = document.createElement('div');
+                playerItem.textContent = player.name + (player.isReady ? ' (Ready)' : ' (Not Ready)');
+                playersList.appendChild(playerItem);
+    
+                if (player.name === playerName) {
+                    isReady = player.isReady;
+                    readyButton.textContent = isReady ? 'Unready' : 'Ready';
+                    readyButton.style.backgroundColor = isReady ? 'red' : 'green';
+                }
+            });
+        });
+    
+        // Handle everyone ready event
+        socket.on('everyoneReady', () => {
+            console.log("Everyone is ready.");
+            readySound.play();
+            overlay.style.display = 'flex';
+            setTimeout(() => {
+                socket.emit('resetReadiness');
+                overlay.style.display = 'none';
+            }, 3000);
+        });
+    
+        // Handle server disconnect
+        socket.on('disconnect', () => {
+            console.log("Disconnected from server.");
+            resetUI();
+            playersList.innerHTML = '<p>Disconnected from server.</p>';
+        });
+    
+        // Listen for the "joinError" event (for duplicate player names)
+        socket.on('joinError', (error) => {
+            alert(error.message);  // Display the error message (e.g., "Name already taken")
+            resetUI();  // Reset UI in case of an error (e.g., clear input fields, etc.)
+        });
+    
+        // Helper function to reset the UI after disconnect
+        function resetUI() {
+            // Reset all button states
+            joinButton.textContent = 'Join Lobby';
+            joinButton.style.backgroundColor = '';
+            readyButton.disabled = true;
+            readyButton.style.backgroundColor = '';
+            readyButton.style.pointerEvents = 'none'; // Disable interaction with the Ready button
+    
+            // Enable input fields for player name and lobby ID
+            playerNameInput.disabled = false;
+            lobbyIdInput.disabled = false;
+    
+            // Clear inputs
+            playerNameInput.value = '';
+            lobbyIdInput.value = '';
+    
+            // Clear players list
+            playersList.innerHTML = ''; 
+            overlay.style.display = 'none';
+    
+            // Reset all internal states
+            playerName = '';
+            lobbyId = '';
+            isReady = false;
+    
+            // Re-enable the "join" button
+            joinButton.disabled = false;
+    
+            // Reset disconnect flag
+            isDisconnecting = false; // Reset the disconnecting flag
+        }
+    </script>        
+</body>
+</html>
